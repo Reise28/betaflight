@@ -26,6 +26,15 @@ jobs:
       - name: Hydrate configuration
         run: make configs
 
+      - name: Show GEPRCF722 configuration
+        run: |
+          echo "=== src/config ==="
+          ls -la src/config
+          echo "=== GEPR configs ==="
+          find src/config -maxdepth 4 -iname '*GEPR*' -print
+          echo "=== GEPRCF722 config.h ==="
+          test -f src/config/configs/GEPRCF722/config.h && echo "FOUND" || echo "NOT FOUND"
+
       - name: Build GEPRCF722
         run: make EXTRA_FLAGS=-Werror CONFIG=GEPRCF722
 
