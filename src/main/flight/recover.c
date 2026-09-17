@@ -15,6 +15,7 @@
 #include "common/maths.h"
 #include "drivers/time.h"
 #include "fc/rc_modes.h"
+#include "fc/runtime_config.h"
 #include "flight/recover.h"
 #include "sensors/acceleration.h"
 #include "sensors/barometer.h"
