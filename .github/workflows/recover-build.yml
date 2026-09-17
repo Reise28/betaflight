@@ -27,7 +27,7 @@ jobs:
         run: make configs
 
       - name: Build GEPRCF722
-        run: make EXTRA_FLAGS=-Werror GEPRCF722
+        run: make EXTRA_FLAGS=-Werror CONFIG=GEPRCF722
 
       - name: Publish firmware
         uses: actions/upload-artifact@v4
