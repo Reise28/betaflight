@@ -36,6 +36,7 @@
 #include "flight/position.h"
 #include "flight/imu.h"
 #include "flight/pid.h"
+#include "flight/recover.h"
 
 #include "io/gps.h"
 
@@ -91,6 +92,7 @@ PG_RESET_TEMPLATE(positionConfig_t, positionConfig,
 #if defined(USE_BARO) || defined(USE_GPS)
 void calculateEstimatedAltitude(void)
 {
+    recoverUpdate();
     static bool wasArmed = false;
     static bool useZeroedGpsAltitude = false; // whether a zero for the GPS altitude value exists
     static float gpsAltCm = 0.0f; // will hold last value on transient loss of 3D fix
