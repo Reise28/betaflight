@@ -36,7 +36,7 @@ jobs:
           test -f src/config/configs/GEPRCF722/config.h && echo "FOUND" || echo "NOT FOUND"
 
       - name: Build GEPRCF722
-        run: make EXTRA_FLAGS=-Werror CONFIG=GEPRCF722
+        run: make EXTRA_FLAGS=-Werror CONFIG=GEPR/GEPRCF722
 
       - name: Publish firmware
         uses: actions/upload-artifact@v4
