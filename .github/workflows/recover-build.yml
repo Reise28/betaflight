@@ -1,0 +1,37 @@
+name: RECOVER Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build GEPRCF722
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache build toolchain
+        uses: actions/cache@v4
+        id: cache-toolchain
+        with:
+          path: tools
+          key: ${{ runner.os }}-${{ hashFiles('mk/tools.mk') }}
+
+      - name: Download and install toolchain
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        run: make arm_sdk_install
+
+      - name: Hydrate configuration
+        run: make configs
+
+      - name: Build GEPRCF722
+        run: make EXTRA_FLAGS=-Werror GEPRCF722_rev
+
+      - name: Publish firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: RECOVER-GEPRCF722
+          path: obj/*.hex
+          retention-days: 30
