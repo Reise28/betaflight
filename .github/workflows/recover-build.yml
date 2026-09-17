@@ -23,8 +23,10 @@ jobs:
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: make arm_sdk_install
 
-      - name: Hydrate configuration
-        run: make configs
+      - name: Hydrate configuration for Betaflight 4.5.5
+        run: |
+          git submodule update --init src/config
+          git -C src/config checkout 92c695af8a2756d75152b54959de28d48fc25cf7
 
       - name: Show GEPRCF722 configuration
         run: |
@@ -36,7 +38,7 @@ jobs:
           test -f src/config/configs/GEPRCF722/config.h && echo "FOUND" || echo "NOT FOUND"
 
       - name: Build GEPRCF722
-        run: make EXTRA_FLAGS=-Werror CONFIG=GEPR/GEPRCF722
+        run: make EXTRA_FLAGS=-Werror CONFIG=GEPRCF722
 
       - name: Publish firmware
         uses: actions/upload-artifact@v4
