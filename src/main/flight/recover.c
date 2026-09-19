@@ -29,8 +29,12 @@
 #define RECOVER_BARO_FALL_CMS          80.0f
 #define RECOVER_BARO_LPF_ALPHA         0.12f
 
-static timeUs_t lastLowGUs;
+static timeUs_t lowGStartUs;
+static timeUs_t lastConfirmedLowGUs;
 static timeUs_t lastMotionUs;
+static bool lowGTiming;
+static bool haveConfirmedLowG;
+static bool haveMotion;
 static bool emergencyArmEligible;
 static float previousBaroCm;
 static timeUs_t previousBaroUs;
@@ -54,11 +58,26 @@ void recoverUpdate(void)
 
     const bool lowG = accG < RECOVER_LOW_G_THRESHOLD;
     const bool moving = gyroDps > RECOVER_GYRO_MOVING_DPS;
+
+    bool lowGConfirmed = false;
     if (lowG) {
-        lastLowGUs = now;
+        if (!lowGTiming) {
+            lowGStartUs = now;
+            lowGTiming = true;
+        }
+
+        if (cmpTimeUs(now, lowGStartUs) >= RECOVER_LOW_G_HOLD_US) {
+            lowGConfirmed = true;
+            lastConfirmedLowGUs = now;
+            haveConfirmedLowG = true;
+        }
+    } else {
+        lowGTiming = false;
     }
+
     if (moving) {
         lastMotionUs = now;
+        haveMotion = true;
     }
 
 #ifdef USE_BARO
@@ -76,15 +95,15 @@ void recoverUpdate(void)
     }
 #endif
 
-    const bool recentLowG = cmpTimeUs(now, lastLowGUs) <= RECOVER_HISTORY_US;
-    const bool recentMotion = cmpTimeUs(now, lastMotionUs) <= RECOVER_HISTORY_US;
+    const bool recentLowG = haveConfirmedLowG && cmpTimeUs(now, lastConfirmedLowGUs) <= RECOVER_HISTORY_US;
+    const bool recentMotion = haveMotion && cmpTimeUs(now, lastMotionUs) <= RECOVER_HISTORY_US;
     const bool baroFalling = baroVelocityCms < -RECOVER_BARO_FALL_CMS;
 
-    // Low-G is the primary evidence for a tossed/falling disarmed craft.
+    // Continuously confirmed low-G is the primary evidence for a tossed/falling disarmed craft.
     // Motion or barometric descent adds confidence.  We intentionally keep
     // the decision based on samples accumulated BEFORE/while the button edge
     // arrives; RECOVER never waits 300 ms after the pilot presses it.
-    emergencyArmEligible = recentLowG && (recentMotion || baroFalling || cmpTimeUs(now, lastLowGUs) <= RECOVER_LOW_G_HOLD_US);
+    emergencyArmEligible = recentLowG && (recentMotion || baroFalling || lowGConfirmed);
 
     int flags = 0;
     flags |= lowG ? 1 : 0;
