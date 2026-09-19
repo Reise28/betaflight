@@ -36,6 +36,7 @@ static bool lowGTiming;
 static bool haveConfirmedLowG;
 static bool haveMotion;
 static bool emergencyArmEligible;
+static bool emergencyArmRequested;
 static float previousBaroCm;
 static timeUs_t previousBaroUs;
 static float baroVelocityCms;
@@ -105,13 +106,17 @@ void recoverUpdate(void)
     // arrives; RECOVER never waits 300 ms after the pilot presses it.
     emergencyArmEligible = recentLowG && (recentMotion || baroFalling || lowGConfirmed);
 
+    const bool recoverActive = IS_RC_MODE_ACTIVE(BOXRECOVER);
+    emergencyArmRequested = recoverActive && emergencyArmEligible;
+
     int flags = 0;
     flags |= lowG ? 1 : 0;
     flags |= recentLowG ? 2 : 0;
     flags |= recentMotion ? 4 : 0;
     flags |= baroFalling ? 8 : 0;
-    flags |= IS_RC_MODE_ACTIVE(BOXRECOVER) ? 16 : 0;
+    flags |= recoverActive ? 16 : 0;
     flags |= emergencyArmEligible ? 32 : 0;
+    flags |= emergencyArmRequested ? 64 : 0;
 
     DEBUG_SET(DEBUG_RECOVER, 0, lrintf(accG * 1000.0f));       // milli-g
     DEBUG_SET(DEBUG_RECOVER, 1, lrintf(gyroDps));              // deg/s
@@ -122,4 +127,9 @@ void recoverUpdate(void)
 bool recoverEmergencyArmEligible(void)
 {
     return emergencyArmEligible;
+}
+
+bool recoverEmergencyArmRequested(void)
+{
+    return emergencyArmRequested;
 }

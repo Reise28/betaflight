@@ -5,3 +5,4 @@
 
 void recoverUpdate(void);
 bool recoverEmergencyArmEligible(void);
+bool recoverEmergencyArmRequested(void);
