@@ -480,15 +480,15 @@ void disarm(flightLogDisarmReason_e reason)
     }
 }
 
-void tryArm(void)
+static void tryArmInternal(armingDisableFlags_e ignoredFlags, bool skipFirstArmGyroCalibration)
 {
-    if (armingConfig()->gyro_cal_on_first_arm) {
+    if (!skipFirstArmGyroCalibration && armingConfig()->gyro_cal_on_first_arm) {
         gyroStartCalibration(true);
     }
 
     updateArmingStatus();
 
-    if (!isArmingDisabled()) {
+    if (!(getArmingDisableFlags() & ~ignoredFlags)) {
         if (ARMING_FLAG(ARMED)) {
             return;
         }
@@ -618,6 +618,16 @@ void tryArm(void)
             }
         }
     }
+}
+
+void tryArm(void)
+{
+    tryArmInternal(0, false);
+}
+
+void tryRecoverArm(void)
+{
+    tryArmInternal(ARMING_DISABLED_ANGLE, true);
 }
 
 // Automatic ACC Offset Calibration

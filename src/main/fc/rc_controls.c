@@ -44,6 +44,7 @@
 
 #include "flight/pid.h"
 #include "flight/failsafe.h"
+#include "flight/recover.h"
 
 #include "io/beeper.h"
 #include "io/usb_cdc_hid.h"
@@ -69,6 +70,7 @@
 
 // true if arming is done via the sticks (as opposed to a switch)
 static bool isUsingSticksToArm = true;
+static bool recoverEmergencyArmLatched = false;
 
 float rcCommand[4];           // interval [1000;2000] for THROTTLE and [-500;+500] for ROLL/PITCH/YAW
 
@@ -164,7 +166,20 @@ void processRcStickPositions(void)
 
     // perform actions
     if (!isUsingSticksToArm) {
-        if (IS_RC_MODE_ACTIVE(BOXARM)) {
+        if (recoverEmergencyArmRequested()) {
+            recoverEmergencyArmLatched = true;
+        }
+
+        if (!IS_RC_MODE_ACTIVE(BOXRECOVER)) {
+            recoverEmergencyArmLatched = false;
+        }
+
+        if (recoverEmergencyArmLatched) {
+            rcDisarmTicks = 0;
+            if (!ARMING_FLAG(ARMED)) {
+                tryRecoverArm();
+            }
+        } else if (IS_RC_MODE_ACTIVE(BOXARM)) {
             rcDisarmTicks = 0;
             // Arming via ARM BOX
             tryArm();
