@@ -1117,6 +1117,7 @@ static FAST_CODE_NOINLINE void subTaskPidController(timeUs_t currentTimeUs)
         && !runawayTakeoffCheckDisabled
         && !flipOverAfterCrashActive
         && !runawayTakeoffTemporarilyDisabled
+        && !IS_RC_MODE_ACTIVE(BOXRECOVER)
         && !FLIGHT_MODE(GPS_RESCUE_MODE)   // disable Runaway Takeoff triggering if GPS Rescue is active
         && (!featureIsEnabled(FEATURE_MOTOR_STOP) || airmodeIsEnabled() || (calculateThrottleStatus() != THROTTLE_LOW))) {
 
