@@ -262,6 +262,10 @@ bool recoverEmergencyArmRequested(void)
     return emergencyArmRequested;
 }
 
+bool recoverThrottleOwnsControl(void)
+{
+    return IS_RC_MODE_ACTIVE(BOXRECOVER) || recoverThrottleHandoffPending;
+}
 void recoverApplyThrottle(void)
 {
     const bool recoverActive = IS_RC_MODE_ACTIVE(BOXRECOVER);

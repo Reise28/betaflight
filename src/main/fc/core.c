@@ -69,6 +69,7 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/pid.h"
+#include "flight/recover.h"
 #include "flight/position.h"
 #include "flight/rpm_filter.h"
 #include "flight/servos.h"
@@ -787,8 +788,11 @@ bool processRx(timeUs_t currentTimeUs)
     const bool throttleActive = calculateThrottleStatus() != THROTTLE_LOW;
     const uint8_t throttlePercent = calculateThrottlePercentAbs();
     const bool launchControlActive = isLaunchControlActive();
+    const bool recoverThrottleOwned = recoverThrottleOwnsControl();
 
-    if (airmodeIsEnabled() && ARMING_FLAG(ARMED) && !launchControlActive) {
+    if (recoverThrottleOwned && ARMING_FLAG(ARMED)) {
+        // RECOVER owns throttle: do not let the physical stick change the Airmode latch.
+    } else if (airmodeIsEnabled() && ARMING_FLAG(ARMED) && !launchControlActive) {
         // once throttle exceeds activate threshold, airmode latches active until disarm
         if (throttlePercent >= rxConfig()->airModeActivateThreshold) {
             airmodeIsActivated = true;
@@ -797,7 +801,7 @@ bool processRx(timeUs_t currentTimeUs)
         airmodeIsActivated = false;
     }
 
-    if (ARMING_FLAG(ARMED) && (airmodeIsActivated || throttleActive || launchControlActive || isFixedWing())) {
+    if (ARMING_FLAG(ARMED) && (recoverThrottleOwned || airmodeIsActivated || throttleActive || launchControlActive || isFixedWing())) {
         pidSetItermReset(false);
         pidStabilisationState(PID_STABILISATION_ON);
     } else {
@@ -812,11 +816,18 @@ bool processRx(timeUs_t currentTimeUs)
     // Once the amount of accumulated time exceeds runaway_takeoff_deactivate_delay then disable
     // prevention for the remainder of the battery.
 
+    if (recoverThrottleOwned && runawayTakeoffDeactivateUs != 0) {
+        // RECOVER pauses normal-flight confirmation.
+        runawayTakeoffAccumulatedUs += cmpTimeUs(currentTimeUs, runawayTakeoffDeactivateUs);
+        runawayTakeoffDeactivateUs = 0;
+    }
+
     if (ARMING_FLAG(ARMED)
         && pidConfig()->runaway_takeoff_prevention
         && !runawayTakeoffCheckDisabled
         && !flipOverAfterCrashActive
         && !runawayTakeoffTemporarilyDisabled
+        && !recoverThrottleOwned
         && !isFixedWing()) {
 
         // Determine if we're in "flight"
@@ -875,7 +886,7 @@ bool processRx(timeUs_t currentTimeUs)
 
 #ifdef USE_LAUNCH_CONTROL
     if (ARMING_FLAG(ARMED)) {
-        if (launchControlActive && (throttlePercent > currentPidProfile->launchControlThrottlePercent)) {
+        if (!recoverThrottleOwned && launchControlActive && (throttlePercent > currentPidProfile->launchControlThrottlePercent)) {
             // throttle limit trigger reached, launch triggered
             // reset the iterms as they may be at high values from holding the launch position
             launchControlState = LAUNCH_CONTROL_TRIGGERED;
@@ -916,6 +927,7 @@ void processRxModes(timeUs_t currentTimeUs)
         && !isFixedWing()
         && !featureIsEnabled(FEATURE_3D)
         && !airmodeIsEnabled()
+        && !recoverThrottleOwnsControl()
         && !FLIGHT_MODE(GPS_RESCUE_MODE)  // disable auto-disarm when GPS Rescue is active
     ) {
         if (isUsingSticksForArming()) {
@@ -1117,7 +1129,7 @@ static FAST_CODE_NOINLINE void subTaskPidController(timeUs_t currentTimeUs)
         && !runawayTakeoffCheckDisabled
         && !flipOverAfterCrashActive
         && !runawayTakeoffTemporarilyDisabled
-        && !IS_RC_MODE_ACTIVE(BOXRECOVER)
+        && !recoverThrottleOwnsControl()
         && !FLIGHT_MODE(GPS_RESCUE_MODE)   // disable Runaway Takeoff triggering if GPS Rescue is active
         && (!featureIsEnabled(FEATURE_MOTOR_STOP) || airmodeIsEnabled() || (calculateThrottleStatus() != THROTTLE_LOW))) {
 
