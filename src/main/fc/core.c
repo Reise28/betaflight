@@ -627,7 +627,7 @@ void tryArm(void)
 
 void tryRecoverArm(void)
 {
-    tryArmInternal(ARMING_DISABLED_ANGLE, true);
+    tryArmInternal(ARMING_DISABLED_ANGLE | ARMING_DISABLED_THROTTLE, true);
 }
 
 // Automatic ACC Offset Calibration

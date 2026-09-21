@@ -42,6 +42,7 @@
 
 #include "flight/failsafe.h"
 #include "flight/imu.h"
+#include "flight/recover.h"
 #include "flight/gps_rescue.h"
 #include "flight/pid.h"
 #include "flight/pid_init.h"
@@ -754,6 +755,8 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
             }
         }
     }
+    recoverApplyThrottle();
+
     if (FLIGHT_MODE(HEADFREE_MODE)) {
         static t_fp_vector_def  rcCommandBuff;
 

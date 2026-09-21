@@ -177,6 +177,7 @@ void processRcStickPositions(void)
         if (recoverEmergencyArmLatched) {
             rcDisarmTicks = 0;
             if (!ARMING_FLAG(ARMED)) {
+                recoverApplyThrottle();
                 tryRecoverArm();
             }
         } else if (IS_RC_MODE_ACTIVE(BOXARM)) {

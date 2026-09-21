@@ -6,3 +6,4 @@
 void recoverUpdate(void);
 bool recoverEmergencyArmEligible(void);
 bool recoverEmergencyArmRequested(void);
+void recoverApplyThrottle(void);
