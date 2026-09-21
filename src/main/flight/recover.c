@@ -63,6 +63,9 @@
 #define RECOVER_THROTTLE_CATCH_HIGH       1500
 #define RECOVER_THROTTLE_BLEND_US       400000
 
+#define RECOVER_ATTITUDE_CATCH_PWM          50
+#define RECOVER_ATTITUDE_BLEND_US       250000
+
 
 static timeUs_t lowGStartUs;
 static timeUs_t lastConfirmedLowGUs;
@@ -79,6 +82,10 @@ static float recoverThrottleCommand = RECOVER_THROTTLE_INVERTED_PWM;
 static bool recoverThrottleHandoffPending;
 static timeUs_t recoverThrottleBlendStartUs;
 static float recoverThrottleBlendStartCommand;
+
+static bool recoverAttitudeHandoffPending;
+static timeUs_t recoverAttitudeBlendStartUs;
+static bool recoverAttitudeBlendPrimed;
 
 static float vectorMagnitude3(float x, float y, float z)
 {
@@ -260,6 +267,111 @@ bool recoverEmergencyArmEligible(void)
 bool recoverEmergencyArmRequested(void)
 {
     return emergencyArmRequested;
+}
+
+bool recoverAttitudeSetpointBlocked(void)
+{
+    return IS_RC_MODE_ACTIVE(BOXRECOVER) ||
+        (recoverAttitudeHandoffPending && !recoverAttitudeBlendPrimed);
+}
+
+
+static bool recoverAttitudeSticksCentered(void)
+{
+    const int midrc = rxConfig()->midrc;
+
+    return ABS((int)rcData[ROLL] - midrc) <= RECOVER_ATTITUDE_CATCH_PWM
+        && ABS((int)rcData[PITCH] - midrc) <= RECOVER_ATTITUDE_CATCH_PWM
+        && ABS((int)rcData[YAW] - midrc) <= RECOVER_ATTITUDE_CATCH_PWM;
+}
+
+void recoverApplyAttitude(void)
+{
+    const bool recoverActive = IS_RC_MODE_ACTIVE(BOXRECOVER);
+
+    /*
+     * RECOVER has full attitude authority while held.
+     */
+    if (recoverActive) {
+        recoverAttitudeHandoffPending = true;
+        recoverAttitudeBlendStartUs = 0;
+        recoverAttitudeBlendPrimed = false;
+
+        rcCommand[ROLL] = 0.0f;
+        rcCommand[PITCH] = 0.0f;
+        rcCommand[YAW] = 0.0f;
+        return;
+    }
+
+    if (!recoverAttitudeHandoffPending) {
+        return;
+    }
+
+    /*
+     * No handoff is necessary after disarm.
+     */
+    if (!ARMING_FLAG(ARMED)) {
+        recoverAttitudeHandoffPending = false;
+        recoverAttitudeBlendStartUs = 0;
+        recoverAttitudeBlendPrimed = false;
+        return;
+    }
+
+    /*
+     * Preserve the pilot commands calculated by updateRcCommands().
+     */
+    const float pilotRoll = rcCommand[ROLL];
+    const float pilotPitch = rcCommand[PITCH];
+    const float pilotYaw = rcCommand[YAW];
+
+    /*
+     * Do not reconnect any attitude axis until all three sticks have
+     * simultaneously returned close to centre.
+     */
+    if (recoverAttitudeBlendStartUs == 0) {
+        if (!recoverAttitudeSticksCentered()) {
+            rcCommand[ROLL] = 0.0f;
+            rcCommand[PITCH] = 0.0f;
+            rcCommand[YAW] = 0.0f;
+            return;
+        }
+
+        recoverAttitudeBlendStartUs = micros();
+
+        /*
+         * Keep one complete RX update at zero after centre is caught.
+         * This gives the normal setpoint path time to flush any stale
+         * pre-RECOVER value.
+         */
+        rcCommand[ROLL] = 0.0f;
+        rcCommand[PITCH] = 0.0f;
+        rcCommand[YAW] = 0.0f;
+        return;
+    }
+
+    if (!recoverAttitudeBlendPrimed) {
+        rcCommand[ROLL] = 0.0f;
+        rcCommand[PITCH] = 0.0f;
+        rcCommand[YAW] = 0.0f;
+        recoverAttitudeBlendPrimed = true;
+        return;
+    }
+
+    const float blend = constrainf(
+        (float)cmpTimeUs(micros(), recoverAttitudeBlendStartUs) /
+        (float)RECOVER_ATTITUDE_BLEND_US,
+        0.0f,
+        1.0f);
+
+    rcCommand[ROLL] = pilotRoll * blend;
+    rcCommand[PITCH] = pilotPitch * blend;
+    rcCommand[YAW] = pilotYaw * blend;
+
+    if (blend >= 1.0f) {
+        recoverAttitudeHandoffPending = false;
+        recoverAttitudeBlendStartUs = 0;
+        recoverAttitudeBlendPrimed = false;
+    }
 }
 
 bool recoverThrottleOwnsControl(void)

@@ -6,5 +6,7 @@
 void recoverUpdate(void);
 bool recoverEmergencyArmEligible(void);
 bool recoverEmergencyArmRequested(void);
+bool recoverAttitudeSetpointBlocked(void);
+void recoverApplyAttitude(void);
 bool recoverThrottleOwnsControl(void);
 void recoverApplyThrottle(void);

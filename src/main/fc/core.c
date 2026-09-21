@@ -990,7 +990,7 @@ void processRxModes(timeUs_t currentTimeUs)
     }
 
     bool canUseHorizonMode = true;
-    if ((IS_RC_MODE_ACTIVE(BOXANGLE) || IS_RC_MODE_ACTIVE(BOXRECOVER) || failsafeIsActive()) && (sensors(SENSOR_ACC))) {
+    if ((IS_RC_MODE_ACTIVE(BOXANGLE) || recoverAttitudeSetpointBlocked() || failsafeIsActive()) && (sensors(SENSOR_ACC))) {
         // bumpless transfer to Level mode
         canUseHorizonMode = false;
 

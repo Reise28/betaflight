@@ -112,7 +112,7 @@ static float rcDeflectionSmoothed[3];
 
 float getSetpointRate(int axis)
 {
-    if (IS_RC_MODE_ACTIVE(BOXRECOVER)) {
+    if (recoverAttitudeSetpointBlocked()) {
         return 0.0f;
     }
 
@@ -714,13 +714,7 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
         }
     }
 
-    // RECOVER owns attitude control while the button is held.
-    // Ignore pilot roll, pitch and yaw commands.
-    if (IS_RC_MODE_ACTIVE(BOXRECOVER)) {
-        rcCommand[ROLL] = 0.0f;
-        rcCommand[PITCH] = 0.0f;
-        rcCommand[YAW] = 0.0f;
-    }
+    recoverApplyAttitude();
 
     int32_t tmp;
     if (featureIsEnabled(FEATURE_3D)) {
