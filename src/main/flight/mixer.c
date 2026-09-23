@@ -217,7 +217,8 @@ static void calculateThrottleAndCurrentMotorEndpoints(timeUs_t currentTimeUs)
             pidResetIterm();
         }
     } else {
-        throttle = rcCommand[THROTTLE] - PWM_RANGE_MIN + throttleAngleCorrection;
+        throttle = rcCommand[THROTTLE] - PWM_RANGE_MIN +
+            (recoverThrottleOwnsControl() ? 0 : throttleAngleCorrection);
         currentThrottleInputRange = PWM_RANGE;
 #ifdef USE_DYN_IDLE
         if (mixerRuntime.dynIdleMinRps > 0.0f) {
@@ -661,7 +662,10 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
 #if defined(USE_THROTTLE_BOOST)
     if (throttleBoost > 0.0f) {
         const float throttleHpf = throttle - pt1FilterApply(&throttleLpf, throttle);
-        throttle = constrainf(throttle + throttleBoost * throttleHpf, 0.0f, 1.0f);
+
+        if (!recoverThrottleOwnsControl()) {
+            throttle = constrainf(throttle + throttleBoost * throttleHpf, 0.0f, 1.0f);
+        }
     }
 #endif
 
