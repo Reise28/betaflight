@@ -217,9 +217,15 @@ static void calculateThrottleAndCurrentMotorEndpoints(timeUs_t currentTimeUs)
             pidResetIterm();
         }
     } else {
+        const int appliedThrottleAngleCorrection =
+            recoverThrottleOwnsControl() ? 0 : throttleAngleCorrection;
+
         throttle = rcCommand[THROTTLE] - PWM_RANGE_MIN +
-            (recoverThrottleOwnsControl() ? 0 : throttleAngleCorrection);
+            appliedThrottleAngleCorrection;
         currentThrottleInputRange = PWM_RANGE;
+
+        DEBUG_SET(DEBUG_RECOVER, 0, lrintf(rcCommand[THROTTLE]));
+        DEBUG_SET(DEBUG_RECOVER, 1, appliedThrottleAngleCorrection);
 #ifdef USE_DYN_IDLE
         if (mixerRuntime.dynIdleMinRps > 0.0f) {
             const float maxIncrease = isAirmodeActivated()
@@ -658,6 +664,8 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
     updateDynLpfCutoffs(currentTimeUs, throttle);
 #endif
 
+    const float recoverDebugThrottleBeforeBoost = throttle;
+
     // apply throttle boost when throttle moves quickly
 #if defined(USE_THROTTLE_BOOST)
     if (throttleBoost > 0.0f) {
@@ -668,6 +676,9 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
         }
     }
 #endif
+
+    DEBUG_SET(DEBUG_RECOVER, 2, lrintf(recoverDebugThrottleBeforeBoost * 1000.0f));
+    DEBUG_SET(DEBUG_RECOVER, 3, lrintf(throttle * 1000.0f));
 
     // send throttle value to blackbox, including scaling and throttle boost, but not TL compensation, dyn idle or airmode
     mixerThrottle = throttle;
