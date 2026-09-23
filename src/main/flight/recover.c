@@ -252,9 +252,13 @@ void recoverUpdate(void)
     flags |= recoverActive ? 16 : 0;
     flags |= emergencyArmEligible ? 32 : 0;
     flags |= emergencyArmRequested ? 64 : 0;
+    flags |= recoverThrottleOwnsControl() ? 128 : 0;
+    flags |= recoverAttitudeSetpointBlocked() ? 256 : 0;
 
-    // DEBUG_RECOVER[0..3] temporarily reserved for throttle-pipeline diagnostics.
-    (void)flags;
+    DEBUG_SET(DEBUG_RECOVER, 0, lrintf(accG * 1000.0f));       // milli-g
+    DEBUG_SET(DEBUG_RECOVER, 1, lrintf(gyroDps));              // deg/s
+    DEBUG_SET(DEBUG_RECOVER, 2, lrintf(baroVelocityCms));      // cm/s
+    DEBUG_SET(DEBUG_RECOVER, 3, flags);                        // detector/control flags
 }
 
 bool recoverEmergencyArmEligible(void)

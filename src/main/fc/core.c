@@ -628,6 +628,10 @@ void tryArm(void)
 
 void tryRecoverArm(void)
 {
+    if (!recoverThrottleOwnsControl()) {
+        return;
+    }
+
     tryArmInternal(ARMING_DISABLED_ANGLE | ARMING_DISABLED_THROTTLE, true);
 }
 
