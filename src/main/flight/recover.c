@@ -1,10 +1,10 @@
 /*
- * Experimental RECOVER detector.
+ * Experimental RECOVER controller.
  *
- * IMPORTANT: this first build does NOT arm motors and does NOT alter flight
- * controls.  It only maintains a rolling pre-button flight-state estimate and
- * exposes it through DEBUG_RECOVER.  This lets us tune the detector before
- * granting RECOVER any motor authority.
+ * V0.8.0 adds a staged recovery state machine:
+ * CATCH -> STABLE -> DESCEND.  The first outdoor build deliberately does not
+ * auto-disarm on ground contact; landing detection will be added only after
+ * the vertical-speed controller has been validated in flight.
  */
 
 #include <math.h>
@@ -66,6 +66,39 @@
 #define RECOVER_ATTITUDE_CATCH_PWM          50
 #define RECOVER_ATTITUDE_BLEND_US       250000
 
+/*
+ * V0.8.0 staged recovery.
+ *
+ * CATCH keeps the proven V0.7.2 tumble/descent-braking throttle law.
+ * STABLE requires a short continuous calm/upright window before handing the
+ * vertical axis to the descent controller.
+ * DESCEND targets approximately -0.5 m/s using the filtered barometric
+ * vertical-speed estimate.
+ */
+#define RECOVER_STABLE_COS_TILT              0.9659258f  /* cos(15 deg) */
+#define RECOVER_STABLE_GYRO_DPS              45.0f
+#define RECOVER_STABLE_MAX_VELOCITY_CMS     150.0f
+#define RECOVER_STABLE_HOLD_US            400000
+#define RECOVER_STABLE_SETTLE_US          300000
+#define RECOVER_AUTOLAND_HOLD_US          1200000
+
+#define RECOVER_DESCEND_TARGET_CMS          -50.0f
+#define RECOVER_DESCEND_KP_PWM_PER_CMS        0.50f
+#define RECOVER_DESCEND_KI_PWM_PER_CMS_S      0.25f
+#define RECOVER_DESCEND_INTEGRAL_LIMIT_PWM   200.0f
+#define RECOVER_DESCEND_ABORT_COS_TILT         RECOVER_COS_TILT_30
+#define RECOVER_DESCEND_ABORT_GYRO_DPS       120.0f
+#define RECOVER_DESCEND_COMMAND_MIN_PWM     1150.0f
+#define RECOVER_DESCEND_COMMAND_MAX_PWM     1700.0f
+#define RECOVER_DESCEND_CONTROL_DT_MAX_US  100000
+
+typedef enum {
+    RECOVER_STATE_IDLE = 0,
+    RECOVER_STATE_CATCH = 1,
+    RECOVER_STATE_STABLE = 2,
+    RECOVER_STATE_DESCEND = 3,
+} recoverState_e;
+
 
 static timeUs_t lowGStartUs;
 static timeUs_t lastConfirmedLowGUs;
@@ -86,6 +119,15 @@ static float recoverThrottleBlendStartCommand;
 static bool recoverAttitudeHandoffPending;
 static timeUs_t recoverAttitudeBlendStartUs;
 static bool recoverAttitudeBlendPrimed;
+
+static bool recoverWasActive;
+static recoverState_e recoverState = RECOVER_STATE_IDLE;
+static timeUs_t recoverStateEntryUs;
+static timeUs_t recoverActivationUs;
+static timeUs_t recoverStableStartUs;
+static timeUs_t recoverDescentControlUs;
+static float recoverDescentThrottleTrim = RECOVER_THROTTLE_LEVEL_PWM;
+static float recoverDescentIntegralPwm;
 
 static float vectorMagnitude3(float x, float y, float z)
 {
@@ -153,6 +195,24 @@ void recoverUpdate(void)
     emergencyArmEligible = recentLowG && (recentMotion || baroFalling || lowGConfirmed);
 
     const bool recoverActive = IS_RC_MODE_ACTIVE(BOXRECOVER);
+
+    if (recoverActive && !recoverWasActive) {
+        recoverState = RECOVER_STATE_CATCH;
+        recoverStateEntryUs = now;
+        recoverActivationUs = now;
+        recoverStableStartUs = 0;
+        recoverDescentControlUs = now;
+        recoverDescentIntegralPwm = 0.0f;
+    } else if (!recoverActive && recoverWasActive) {
+        recoverState = RECOVER_STATE_IDLE;
+        recoverStateEntryUs = now;
+        recoverActivationUs = 0;
+        recoverStableStartUs = 0;
+        recoverDescentControlUs = 0;
+        recoverDescentIntegralPwm = 0.0f;
+    }
+    recoverWasActive = recoverActive;
+
     if (recoverActive) {
         /*
          * getCosTiltAngle():
@@ -164,53 +224,32 @@ void recoverUpdate(void)
         const float cosTilt = getCosTiltAngle();
 
         /*
-         * At or beyond 90 degrees, normal collective thrust cannot support
-         * the craft vertically.  Between 90 and 70 degrees, gradually allow
-         * enough collective power to improve rotational authority.
+         * Proven V0.7.2 CATCH throttle law.
          */
         const float thrustUsefulBlend = constrainf(
             cosTilt / RECOVER_COS_TILT_70,
             0.0f,
             1.0f);
 
-        /*
-         * 0 at 70 degrees or worse,
-         * 1 at 30 degrees or better.
-         */
         const float uprightBlend = constrainf(
             (cosTilt - RECOVER_COS_TILT_70) /
             (RECOVER_COS_TILT_30 - RECOVER_COS_TILT_70),
             0.0f,
             1.0f);
 
-        /*
-         * More angular velocity permits a small collective boost so the
-         * mixer has motor authority to arrest a violent tumble.
-         */
         const float gyroBlend = constrainf(
             (gyroDps - RECOVER_GYRO_BOOST_START_DPS) /
             (RECOVER_GYRO_BOOST_FULL_DPS - RECOVER_GYRO_BOOST_START_DPS),
             0.0f,
             1.0f);
 
-        /*
-         * baroVelocityCms is positive upward, negative downward.
-         */
         const float descentCms = fmaxf(0.0f, -baroVelocityCms);
-
         const float descentBlend = constrainf(
             (descentCms - RECOVER_DESCENT_START_CMS) /
             (RECOVER_DESCENT_FULL_CMS - RECOVER_DESCENT_START_CMS),
             0.0f,
             1.0f);
 
-        /*
-         * Base collective:
-         *
-         * inverted/sideways -> approximately 1150
-         * useful thrust     -> approximately 1250
-         * near level        -> approximately 1350
-         */
         const float baseThrottle =
             RECOVER_THROTTLE_INVERTED_PWM +
             thrustUsefulBlend *
@@ -220,27 +259,107 @@ void recoverUpdate(void)
                 (RECOVER_THROTTLE_LEVEL_PWM -
                  RECOVER_THROTTLE_TUMBLE_PWM);
 
-        /*
-         * Gyro boost matters mainly while attitude recovery is still needed.
-         */
         const float gyroBoost =
             (1.0f - uprightBlend) *
             gyroBlend *
             RECOVER_GYRO_BOOST_PWM;
 
-        /*
-         * Descent braking becomes strong only when thrust points sufficiently
-         * upward.
-         */
         const float descentBoost =
             uprightBlend *
             descentBlend *
             RECOVER_DESCENT_BOOST_PWM;
 
-        recoverThrottleCommand = constrainf(
+        const float catchThrottleCommand = constrainf(
             baseThrottle + gyroBoost + descentBoost,
             RECOVER_THROTTLE_MIN_PWM,
             RECOVER_THROTTLE_MAX_PWM);
+
+        const bool baroAvailable = sensors(SENSOR_BARO);
+        const bool stableNow =
+            ARMING_FLAG(ARMED) &&
+            baroAvailable &&
+            cosTilt >= RECOVER_STABLE_COS_TILT &&
+            gyroDps <= RECOVER_STABLE_GYRO_DPS &&
+            fabsf(baroVelocityCms) <= RECOVER_STABLE_MAX_VELOCITY_CMS;
+
+        if (recoverState == RECOVER_STATE_IDLE) {
+            recoverState = RECOVER_STATE_CATCH;
+            recoverStateEntryUs = now;
+        }
+
+        if (recoverState == RECOVER_STATE_CATCH) {
+            recoverThrottleCommand = catchThrottleCommand;
+
+            if (stableNow) {
+                if (recoverStableStartUs == 0) {
+                    recoverStableStartUs = now;
+                } else if (cmpTimeUs(now, recoverStableStartUs) >= RECOVER_STABLE_HOLD_US) {
+                    recoverState = RECOVER_STATE_STABLE;
+                    recoverStateEntryUs = now;
+                }
+            } else {
+                recoverStableStartUs = 0;
+            }
+        } else if (recoverState == RECOVER_STATE_STABLE) {
+            recoverThrottleCommand = catchThrottleCommand;
+
+            if (!stableNow) {
+                recoverState = RECOVER_STATE_CATCH;
+                recoverStateEntryUs = now;
+                recoverStableStartUs = 0;
+            } else if (cmpTimeUs(now, recoverStateEntryUs) >= RECOVER_STABLE_SETTLE_US &&
+                       cmpTimeUs(now, recoverActivationUs) >= RECOVER_AUTOLAND_HOLD_US) {
+                recoverState = RECOVER_STATE_DESCEND;
+                recoverStateEntryUs = now;
+                recoverDescentControlUs = now;
+                recoverDescentIntegralPwm = 0.0f;
+                recoverDescentThrottleTrim = constrainf(
+                    recoverThrottleCommand,
+                    RECOVER_DESCEND_COMMAND_MIN_PWM,
+                    RECOVER_DESCEND_COMMAND_MAX_PWM);
+            }
+        } else if (recoverState == RECOVER_STATE_DESCEND) {
+            const bool attitudeUnsafe =
+                cosTilt < RECOVER_DESCEND_ABORT_COS_TILT ||
+                gyroDps > RECOVER_DESCEND_ABORT_GYRO_DPS ||
+                !baroAvailable;
+
+            if (attitudeUnsafe) {
+                recoverState = RECOVER_STATE_CATCH;
+                recoverStateEntryUs = now;
+                recoverStableStartUs = 0;
+                recoverDescentIntegralPwm = 0.0f;
+                recoverThrottleCommand = catchThrottleCommand;
+            } else {
+                const timeDelta_t controlDtUs = cmpTimeUs(now, recoverDescentControlUs);
+                recoverDescentControlUs = now;
+
+                const float velocityErrorCms =
+                    RECOVER_DESCEND_TARGET_CMS - baroVelocityCms;
+
+                if (controlDtUs > 0 && controlDtUs <= RECOVER_DESCEND_CONTROL_DT_MAX_US) {
+                    const float dtSeconds = (float)controlDtUs * 1e-6f;
+                    recoverDescentIntegralPwm +=
+                        velocityErrorCms *
+                        RECOVER_DESCEND_KI_PWM_PER_CMS_S *
+                        dtSeconds;
+                    recoverDescentIntegralPwm = constrainf(
+                        recoverDescentIntegralPwm,
+                        -RECOVER_DESCEND_INTEGRAL_LIMIT_PWM,
+                        RECOVER_DESCEND_INTEGRAL_LIMIT_PWM);
+                }
+
+                const float proportionalPwm =
+                    velocityErrorCms * RECOVER_DESCEND_KP_PWM_PER_CMS;
+
+                recoverThrottleCommand = constrainf(
+                    recoverDescentThrottleTrim +
+                    proportionalPwm +
+                    recoverDescentIntegralPwm,
+                    RECOVER_DESCEND_COMMAND_MIN_PWM,
+                    RECOVER_DESCEND_COMMAND_MAX_PWM);
+            }
+        }
     }
     emergencyArmRequested = recoverActive && emergencyArmEligible;
 
@@ -254,6 +373,7 @@ void recoverUpdate(void)
     flags |= emergencyArmRequested ? 64 : 0;
     flags |= recoverThrottleOwnsControl() ? 128 : 0;
     flags |= recoverAttitudeSetpointBlocked() ? 256 : 0;
+    flags |= ((int)recoverState & 0x3) << 10;
 
     DEBUG_SET(DEBUG_RECOVER, 0, lrintf(accG * 1000.0f));       // milli-g
     DEBUG_SET(DEBUG_RECOVER, 1, lrintf(gyroDps));              // deg/s
