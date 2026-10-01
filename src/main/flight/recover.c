@@ -97,8 +97,8 @@ void recoverUpdate(void)
     const timeUs_t now = micros();
 
     float accG = 1.0f;
-    if (sensors(SENSOR_ACC) && acc.dev.acc_1G > 0) {
-        accG = vectorMagnitude3(acc.accADC[X], acc.accADC[Y], acc.accADC[Z]) * acc.dev.acc_1G_rec;
+    if (sensors(SENSOR_ACC) && acc.isAccelUpdatedAtLeastOnce) {
+        accG = acc.accMagnitude;
     }
 
     const float gyroDps = vectorMagnitude3(gyro.gyroADCf[X], gyro.gyroADCf[Y], gyro.gyroADCf[Z]);
