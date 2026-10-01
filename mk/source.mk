@@ -182,6 +182,7 @@ COMMON_SRC = \
             flight/pid.c \
             flight/pid_init.c \
             flight/position.c \
+            flight/recover.c \
             flight/position_estimator.c \
             flight/position_filter.c \
             flight/position_nav.c \
