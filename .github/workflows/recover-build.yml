@@ -1,0 +1,40 @@
+﻿name: RECOVER Build 2026.6.2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build GEPRCF722
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache build toolchain
+        uses: actions/cache@v4
+        id: cache-toolchain
+        with:
+          path: tools
+          key: ${{ runner.os }}-${{ hashFiles('mk/tools.mk') }}
+
+      - name: Download and install toolchain
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        run: make arm_sdk_install
+
+      - name: Hydrate Betaflight configuration
+        run: |
+          git submodule update --init src/config
+          git submodule status src/config
+          find src/config/configs -path '*GEPRCF722*' -print
+
+      - name: Build GEPRCF722
+        run: make EXTRA_FLAGS=-Werror CONFIG=GEPRCF722
+
+      - name: Publish firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: RECOVER-2026.6.2-GEPRCF722
+          path: obj/*.hex
+          retention-days: 30
