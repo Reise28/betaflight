@@ -102,6 +102,7 @@ static const box_t boxes[CHECKBOX_ITEM_COUNT] = {
     { .boxId = BOXREADY, .boxName = "READY", .permanentId = 53},
     { .boxId = BOXLAPTIMERRESET, .boxName = "LAP TIMER RESET", .permanentId = 54},
     { .boxId = BOXCHIRP, .boxName = "CHIRP", .permanentId = 55},
+    { .boxId = BOXRECOVER, .boxName = "RECOVER", .permanentId = 200},
     { .boxId = BOXAUTOPILOT, .boxName = "AUTOPILOT", .permanentId = 56},
     { .boxId = BOXWPCAPTURE, .boxName = "WP CAPTURE", .permanentId = 57}
 };
@@ -377,6 +378,7 @@ void initActiveBoxIds(void)
 #if defined(USE_CHIRP)
     BME(BOXCHIRP);
 #endif
+    BME(BOXRECOVER);
 
 #undef BME
     // check that all enabled IDs are in boxes array (check may be skipped when using findBoxById() functions)

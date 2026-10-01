@@ -81,6 +81,7 @@
 #include "flight/mixer.h"
 #include "flight/pid.h"
 #include "flight/position.h"
+#include "flight/recover.h"
 #include "flight/rpm_filter.h"
 #include "flight/servos.h"
 
@@ -1028,6 +1029,7 @@ void processRxModes(timeUs_t currentTimeUs)
     }
 
     updateActivatedModes();
+    recoverUpdate();
 
 #ifdef USE_DSHOT
     if (crashFlipModeActive) {
